@@ -1,3 +1,7 @@
+node_modules/
 build/
-sdkconfig
-sdkconfig.old
+
+# sdkconfig
+# sdkconfig.old
+
+*.swp

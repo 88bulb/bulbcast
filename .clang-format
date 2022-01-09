@@ -1,0 +1,12 @@
+---
+Language: Cpp
+BasedOnStyle: LLVM
+IndentWidth: '4'
+SortIncludes: false
+TabWidth: '4'
+---
+Language: JavaScript
+BasedOnStyle: LLVM
+IndentWidth: '2'
+TabWidth: '2'
+...
