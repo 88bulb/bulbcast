@@ -92,12 +92,11 @@ hsv_t prev_base_color_hsv = {0}, curr_base_color_hsv = {0},
 typedef struct base_color_hue_swing_t {
     TickType_t start;
     TickType_t end;
-    uint8_t hue_base;
-    uint8_t hue_peak;
+    int amp;
 } base_color_hue_swing_t;
 
 base_color_hue_swing_t base_color_hue_swing;
-base_color_hue_swing_t* base_color_hub_swing_handle = NULL;
+base_color_hue_swing_t* base_color_hue_swing_handle = NULL;
 
 typedef struct base_color_swing_config_t {
     uint8_t h_amp;
@@ -108,16 +107,16 @@ typedef struct base_color_swing_config_t {
     TickType_t period_var;
 } base_color_swing_config_t;
 
-base_color_hue_swing_config_t base_color_hue_swing_config;
-base_color_hue_swing_config_t *base_color_hue_swing_config_handle = NULL;
+base_color_swing_config_t base_color_hue_swing_config;
+base_color_swing_config_t *base_color_hue_swing_config_handle = NULL;
 
 static void set_duty(uint32_t r, uint32_t g, uint32_t b, uint32_t c,
                      uint32_t w) {
-    /*
-        r = rgbmap2[r];
-        g = rgbmap2[g];
-        b = rgbmap2[b];
-    */
+
+    r = r * 3;
+    g = g * 3;
+    b = b / 2;
+   
     ledc_set_duty(LEDC_LOW_SPEED_MODE, LEDC_CHANNEL_0, r);
     ledc_update_duty(LEDC_LOW_SPEED_MODE, LEDC_CHANNEL_0);
     ledc_set_duty(LEDC_LOW_SPEED_MODE, LEDC_CHANNEL_1, g);
@@ -158,8 +157,8 @@ void led_init() {
     ledc_timer_config_t ledc_timer = {
 //        .duty_resolution = LEDC_TIMER_14_BIT, // resolution of PWM duty
 //        .freq_hz = 2500,                      // frequency of PWM signal
-        .duty_resolution = LEDC_TIMER_8_BIT,    // resolution of PWM duty
-        .freq_hz = 20000,                       // frequency of PWM signal
+        .duty_resolution = LEDC_TIMER_10_BIT,    // resolution of PWM duty
+        .freq_hz = 5000,                       // frequency of PWM signal
         .speed_mode = LEDC_LOW_SPEED_MODE,    // timer mode
         .timer_num = LEDC_TIMER_1,            // timer index
         .clk_cfg = LEDC_AUTO_CLK,             // Auto select the source clock
@@ -209,7 +208,7 @@ void led_init() {
     }
 
     ledc_fade_func_install(0);
-    set_duty(0, 128, 0, 0, 0);
+    set_duty(256, 256, 256, 0, 0);
 }
 
 uint8_t interpolate(uint8_t prev, uint8_t next, TickType_t elapsed,
@@ -287,7 +286,7 @@ void fade_base_color() {
 }
 
 void swing_base_color () {
-
+    TickType_t now = xTaskGetTickCount();
 }
 
 void handle_bulbcode() {
@@ -355,6 +354,14 @@ void handle_bulbcode() {
             prev_base_color_hsv = curr_base_color_hsv;
             next_base_color_rgb = rgb;
             next_base_color_hsv = hsv;
+
+            int hue1 = (int)prev_base_color_hsv.h;
+            int hue2 = (int)next_base_color_hsv.h;
+
+            int cw_dist = hue2 > hue1 ? hue2 - hue1 : (hue2 + 256) - hue1;
+            int ccw_dist = hue1 > hue2 ? hue1 - hue2 : (hue1 + 256) - hue2;
+
+            base_color_fading_ccw = ccw_dist < cw_dist;
         }
     } break;
     case 0x0003: {
@@ -365,14 +372,14 @@ void handle_bulbcode() {
         base_color_hue_swing_config.v_amp_var = 0;
         base_color_hue_swing_config.period = bulbcode[5] / portTICK_PERIOD_MS;
         base_color_hue_swing_config.period_var = 0;
-
         base_color_hue_swing_config_handle = &base_color_hue_swing_config;
 
         if (base_color_hue_swing_handle == NULL) {
             TickType_t now = xTaskGetTickCount();
             base_color_hue_swing.start = now;
             base_color_hue_swing.end = now + base_color_hue_swing_config.period;
-            
+            base_color_hue_swing.amp = base_color_hue_swing_config.h_amp;
+            base_color_hue_swing_handle = &base_color_hue_swing_config; 
         }
     } break;
     default:

@@ -1,0 +1,120 @@
+#include <stdint.h>
+#include <math.h>
+#include "color.h"
+
+ColorHSV rgb_to_hsv(ColorRGB rgb) {
+    uint8_t r, g, b, cmax, cmin, diff;
+    float r_f, g_f, b_f, cmax_f, diff_f;
+    float h, s, v;
+    ColorHSV hsv;
+
+    r = rgb.r;
+    g = rgb.g;
+    b = rgb.b;
+
+    r_f = (float)r / 255.0;
+    g_f = (float)g / 255.0;
+    b_f = (float)b / 255.0;
+
+    cmax = (r >= g && r >= b) ? r : (g >= r && g >= b) ? g : b;
+    cmax_f = (float)cmax / 255.0;
+    cmin = (r <= g && r <= b) ? r : (g <= r && g <= b) ? g : b;
+
+    diff = cmax - cmin;
+    diff_f = (float)diff / 255.0;
+
+    h = 0.0;
+    if (cmax == cmin) {
+        h = 0.0;
+    } else if (cmax == r) {
+        h = fmod((60.0 * ((g_f - b_f) / diff_f) + 360.0), 360.0);
+    } else if (cmax == g) {
+        h = fmod((60.0 * ((b_f - r_f) / diff_f) + 120.0), 360.0);
+    } else if (cmax == b) {
+        h = fmod((60.0 * ((r_f - g_f) / diff_f) + 240.0), 360.0);
+    }
+
+    if (cmax == 0) {
+        s = 0.0;
+    } else {
+        s = (diff_f / cmax_f) * 100.0;
+    }
+
+    v = cmax_f * 100.0; 
+
+    hsv.h = h;
+    hsv.s = s;
+    hsv.v = v;
+    return hsv; 
+}
+
+ColorRGB hsv_to_rgb(ColorHSV hsv) {
+    float r = 0, g = 0, b = 0;
+
+    if (hsv.s == 0) {
+        r = hsv.v;
+        g = hsv.v;
+        b = hsv.v;
+    } else {
+        int i;
+        float f, p, q, t;
+
+        if (hsv.h == 360) {
+            hsv.h = 0;
+        } else {
+            hsv.h = hsv.h / 60.0;
+        }
+
+        i = (int)trunc(hsv.h);
+        f = hsv.h - i;
+
+        p = hsv.v * (1.0 - hsv.s);
+        q = hsv.v * (1.0 - (hsv.s * f));
+        t = hsv.v * (1.0 - (hsv.s * (1.0 - f)));
+
+        switch (i) {
+        case 0:
+            r = hsv.v;
+            g = t;
+            b = p;
+            break;
+
+        case 1:
+            r = q;
+            g = hsv.v;
+            b = p;
+            break;
+
+        case 2:
+            r = p;
+            g = hsv.v;
+            b = t;
+            break;
+
+        case 3:
+            r = p;
+            g = q;
+            b = hsv.v;
+            break;
+
+        case 4:
+            r = t;
+            g = p;
+            b = hsv.v;
+            break;
+
+        default:
+            r = hsv.v;
+            g = p;
+            b = q;
+            break;
+        }
+    }
+
+    ColorRGB rgb;
+    rgb.r = r * 255;
+    rgb.g = g * 255;
+    rgb.b = b * 255;
+
+    return rgb;
+}

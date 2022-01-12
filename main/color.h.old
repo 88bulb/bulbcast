@@ -1,0 +1,19 @@
+#ifndef _COLOR_H_
+#define _COLOR_H_
+
+typedef struct ColorHSV {
+    float h;
+    float s;
+    float v;
+} ColorHSV;
+
+typedef struct ColorRGB {
+    uint8_t r;
+    uint8_t g;
+    uint8_t b;
+} ColorRGB;
+
+ColorHSV rgb_to_hsv(ColorRGB rgb);
+ColorRGB hsv_to_rgb(ColorHSV hsv);
+
+#endif
