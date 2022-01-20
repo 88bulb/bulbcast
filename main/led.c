@@ -167,7 +167,7 @@ void led_set_duty(uint32_t r, uint32_t g, uint32_t b, uint32_t w, uint32_t c) {
     ledc_update_duty(LEDC_LOW_SPEED_MODE, LEDC_CHANNEL_4);
 }
 
-void paint(hsv_t hsv, TickType_t ticks) {
+void fade(hsv_t hsv, TickType_t ticks) {
     uint32_t r, g, b, c;
 #ifdef USE_WARM_WHITE
     uint32_t w;
@@ -322,7 +322,6 @@ void flash_max() {
 void flash_min() {
 
     ESP_LOGI(TAG, "flash_max");
-
 #ifdef USE_WARM_WHITE
     ledc_set_duty(LEDC_LOW_SPEED_MODE, LEDC_CHANNEL_3, 0);
     ledc_update_duty(LEDC_LOW_SPEED_MODE, LEDC_CHANNEL_3);

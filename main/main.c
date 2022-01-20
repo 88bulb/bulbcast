@@ -29,11 +29,12 @@ typedef struct {
     } data;
 } event_type;
 
-uint8_t bulbcode[16] = {0};
-
 static const char *TAG = "bulbcode";
 
 esp_reset_reason_t rst_reason = ESP_RST_UNKNOWN;
+
+esp_timer_handle_t periodic_timer = {0};
+static bool periodic_timer_started = false;
 
 uint8_t boot_params[16] = {0};
 uint32_t my_bit_field;
@@ -41,27 +42,64 @@ uint32_t my_bit_field;
 bool base_color_transitioning = false;
 
 hsv_hue_dir_t base_color_transition_dir;
-TickType_t base_color_transition_start = 0;
-TickType_t base_color_transition_end = 0;
+int64_t base_color_transition_start = 0;
+int64_t base_color_transition_end = 0;
 
 hsv_t prev_base_color_hsv = {0}, curr_base_color_hsv = {0},
       next_base_color_hsv = {0};
 
-void handle_bulbcode() {
+static void start_periodic_timer() {
+    ESP_ERROR_CHECK(esp_timer_start_periodic(periodic_timer, 10000));
+    periodic_timer_started = true;
+}
+
+static void stop_periodic_timer() {
+    if (periodic_timer_started) {
+        ESP_ERROR_CHECK(esp_timer_stop(periodic_timer));
+        periodic_timer_started = false; 
+    }
+}
+
+static void render() {
+    if (base_color_transitioning) {
+        int64_t t1 = base_color_transition_start;
+        int64_t t2 = base_color_transition_end;
+        int64_t now = esp_timer_get_time();
+        hsv_t c1 = prev_base_color_hsv;
+        hsv_t c2 = next_base_color_hsv;
+        hsv_hue_dir_t dir = base_color_transition_dir;
+        curr_base_color_hsv = interp_color(c1, c2, dir, t1, t2, now);
+        if (now >= t2)
+            base_color_transitioning = false;
+    }
+    draw(curr_base_color_hsv);
+}
+
+static void hard_tick(void* arg) {
+    int64_t __start = esp_timer_get_time();
+
+    render();
+
+    int64_t __end = esp_timer_get_time();
+    if (__end - __start > 100) {
+        ESP_LOGI("hardtick", "prio: %u, micros: %lld", uxTaskPriorityGet(NULL),
+                 esp_timer_get_time() - __start);
+    }
+}
+
+void handle_bulbcode(const uint8_t bulbcode[15]) {
+    stop_periodic_timer();
+
     uint16_t cmd = bulbcode[0] * 256 + bulbcode[1];
     if (cmd == 0)
         return;
-
-    // erase bulbcode;
-    bulbcode[0] = 0;
-    bulbcode[1] = 0;
 
     switch (cmd) {
     case 0x1002: {
         uint8_t opt = bulbcode[2];
 
-        TickType_t dur = ((opt & 0x01) ? 1000 : 100) *
-                         (bulbcode[3] * 256 + bulbcode[4]) / portTICK_PERIOD_MS;
+        int64_t dur = ((opt & 0x01) ? 10000000 : 100000) *
+                      (bulbcode[3] * 256 + bulbcode[4]);
 
         hsv_t hsv;
         hsv.h = bulbcode[5];
@@ -86,7 +124,7 @@ void handle_bulbcode() {
 
             // may be restarting
             base_color_transitioning = true;
-            base_color_transition_start = xTaskGetTickCount();
+            base_color_transition_start = esp_timer_get_time();
             base_color_transition_end = base_color_transition_start + dur;
             prev_base_color_hsv = curr_base_color_hsv;
             next_base_color_hsv = hsv;
@@ -102,21 +140,14 @@ void handle_bulbcode() {
      *  
      */
     case 0x1003: {
-        // uint8_t = bulbcode[2];
-        // uint8_t* payload = &bulbcode[2]; 
          
     } break;
     default:
         break;
     }
-}
 
-static void hard_tick(void* arg) {
-    int64_t start = esp_timer_get_time();
-    flash_max();
-    usleep(10000);
-    flash_min();
-    ESP_LOGI("htimer", "%lld", esp_timer_get_time() - start);
+    render();
+    start_periodic_timer();
 }
 
 void app_main(void) {
@@ -165,42 +196,15 @@ void app_main(void) {
         .name = "hard_tick"
     };
 
-    esp_timer_handle_t periodic_timer;
     ESP_ERROR_CHECK(esp_timer_create(&periodic_timer_args, &periodic_timer));
-    ESP_ERROR_CHECK(esp_timer_start_periodic(periodic_timer, 5000000));
-
-    xTaskCreate(&ble_adv_scan, "ble", 4096, NULL, 6, NULL);
 
     curr_base_color_hsv.h = 0x20;
     curr_base_color_hsv.s = 0xff;
     curr_base_color_hsv.v = 0x20;
+    fade(curr_base_color_hsv, 1);
 
-    paint(curr_base_color_hsv, 1);
+    xTaskCreate(&ble_adv_scan, "ble", 4096, NULL, 6, NULL);
 
     vTaskDelay(portMAX_DELAY);
-
-    for (int i = 0; i < 100; i++) {
-        flash(10);
-        vTaskDelay(1);
-    }
-
-    while (1) {
-        handle_bulbcode();
-        if (base_color_transitioning) {
-            TickType_t t1 = base_color_transition_start;
-            TickType_t t2 = base_color_transition_end;
-            TickType_t curr_tick = xTaskGetTickCount();
-            hsv_t c1 = prev_base_color_hsv;
-            hsv_t c2 = next_base_color_hsv;
-            hsv_hue_dir_t dir = base_color_transition_dir; 
-            curr_base_color_hsv = interp_color(c1, c2, dir, t1, t2, curr_tick);
-            if (curr_tick >= t2) {
-               base_color_transitioning = false; 
-            }
-        }
-        // paint(curr_base_color_hsv, 1);
-        draw(curr_base_color_hsv);
-        vTaskDelay(1);
-    }
 }
 

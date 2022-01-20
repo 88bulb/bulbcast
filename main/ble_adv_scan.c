@@ -47,16 +47,13 @@ static void handle_mfr_data(uint8_t *bda, uint8_t *data, size_t data_len) {
     if (!((data[9] * 256 + data[10]) & my_bit_field))
         return;
 
-    for (int i = 11; i < 26; i++) {
-        bulbcode[i - 11] = data[i];
-    }
-
-//    xQueueSend(ledc_handle, cc, 0);
-    
+    handle_bulbcode(&data[11]);
 }
 
 static void esp_gap_cb(esp_gap_ble_cb_event_t event,
                        esp_ble_gap_cb_param_t *param) {
+    // priority 19, lower than that of esp_timer callback (22)
+    // ESP_LOGI(TAG, "prio: %u", uxTaskPriorityGet(NULL)); 
     switch (event) {
     case ESP_GAP_BLE_ADV_DATA_SET_COMPLETE_EVT: {
         esp_ble_adv_params_t adv_params = {

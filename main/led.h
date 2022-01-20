@@ -12,7 +12,8 @@ void led_set_duty(uint32_t r, uint32_t g, uint32_t b, uint32_t c, uint32_t w);
 /**
  * This is a blocking function
  */
-void paint(hsv_t hsv, TickType_t ticks); 
+void fade(hsv_t hsv, TickType_t ticks); 
+
 void draw(hsv_t hsv);
 void flash(int ms);
 void flash_max();
