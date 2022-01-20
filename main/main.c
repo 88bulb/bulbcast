@@ -21,6 +21,9 @@
 #include "color.h"
 #include "stm.h"
 
+uint8_t boot_params[16] = {0};
+uint32_t my_bit_field;
+
 typedef enum { nilEvent = 0 } event_enum_t;
 
 typedef struct {
@@ -31,13 +34,8 @@ typedef struct {
 
 static const char *TAG = "bulbcode";
 
-esp_reset_reason_t rst_reason = ESP_RST_UNKNOWN;
-
-esp_timer_handle_t periodic_timer = {0};
+static esp_timer_handle_t periodic_timer = {0};
 static bool periodic_timer_started = false;
-
-uint8_t boot_params[16] = {0};
-uint32_t my_bit_field;
 
 bool base_color_transitioning = false;
 
@@ -48,11 +46,17 @@ int64_t base_color_transition_end = 0;
 hsv_t prev_base_color_hsv = {0}, curr_base_color_hsv = {0},
       next_base_color_hsv = {0};
 
+/**
+ * start timer 
+ */
 static void start_periodic_timer() {
-    ESP_ERROR_CHECK(esp_timer_start_periodic(periodic_timer, 10000));
+    ESP_ERROR_CHECK(esp_timer_start_periodic(periodic_timer, 1000));
     periodic_timer_started = true;
 }
 
+/**
+ * stop timer, could be called if timer not startd
+ */
 static void stop_periodic_timer() {
     if (periodic_timer_started) {
         ESP_ERROR_CHECK(esp_timer_stop(periodic_timer));
@@ -60,6 +64,9 @@ static void stop_periodic_timer() {
     }
 }
 
+/**
+ *
+ */
 static void render() {
     if (base_color_transitioning) {
         int64_t t1 = base_color_transition_start;
@@ -72,10 +79,11 @@ static void render() {
         if (now >= t2)
             base_color_transitioning = false;
     }
+
     draw(curr_base_color_hsv);
 }
 
-static void hard_tick(void* arg) {
+static void timer_callback(void* arg) {
     int64_t __start = esp_timer_get_time();
 
     render();
@@ -87,24 +95,19 @@ static void hard_tick(void* arg) {
     }
 }
 
-void handle_bulbcode(const uint8_t bulbcode[15]) {
+void handle_bulbcode(uint16_t cmd, const uint8_t code[13]) {
     stop_periodic_timer();
-
-    uint16_t cmd = bulbcode[0] * 256 + bulbcode[1];
-    if (cmd == 0)
-        return;
 
     switch (cmd) {
     case 0x1002: {
-        uint8_t opt = bulbcode[2];
-
-        int64_t dur = ((opt & 0x01) ? 10000000 : 100000) *
-                      (bulbcode[3] * 256 + bulbcode[4]);
+        uint8_t opt = code[0];
+        int64_t dur =
+            ((opt & 0x01) ? 10000000 : 100000) * (code[1] * 256 + code[2]);
 
         hsv_t hsv;
-        hsv.h = bulbcode[5];
-        hsv.s = bulbcode[6];
-        hsv.v = bulbcode[7];
+        hsv.h = code[3];
+        hsv.s = code[4];
+        hsv.v = code[5];
 
         if (dur == 0) {
             // may be stopping
@@ -160,7 +163,7 @@ void app_main(void) {
     }
     ESP_ERROR_CHECK(err);
 
-    rst_reason = esp_reset_reason();
+    esp_reset_reason_t rst_reason = esp_reset_reason();
     if (rst_reason == ESP_RST_DEEPSLEEP) {
         rtc_retain_mem_t *rtc_mem = bootloader_common_get_rtc_retain_mem();
         uint8_t *custom = rtc_mem->custom;
@@ -192,15 +195,14 @@ void app_main(void) {
     ESP_LOGI(TAG, "portTICK_PERIOD_MS: %u", portTICK_PERIOD_MS);
 
     const esp_timer_create_args_t periodic_timer_args = {
-        .callback = &hard_tick,
-        .name = "hard_tick"
+        .callback = &timer_callback,
     };
 
     ESP_ERROR_CHECK(esp_timer_create(&periodic_timer_args, &periodic_timer));
 
     curr_base_color_hsv.h = 0x20;
     curr_base_color_hsv.s = 0xff;
-    curr_base_color_hsv.v = 0x20;
+    curr_base_color_hsv.v = 0x80;
     fade(curr_base_color_hsv, 1);
 
     xTaskCreate(&ble_adv_scan, "ble", 4096, NULL, 6, NULL);

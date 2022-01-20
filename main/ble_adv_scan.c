@@ -47,7 +47,8 @@ static void handle_mfr_data(uint8_t *bda, uint8_t *data, size_t data_len) {
     if (!((data[9] * 256 + data[10]) & my_bit_field))
         return;
 
-    handle_bulbcode(&data[11]);
+    uint16_t cmd = (uint16_t)data[11] * 256 + (uint16_t)data[12];
+    handle_bulbcode(cmd, &data[13]);
 }
 
 static void esp_gap_cb(esp_gap_ble_cb_event_t event,
