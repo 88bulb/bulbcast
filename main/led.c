@@ -2,6 +2,7 @@
 #include "freertos/task.h"
 #include "freertos/semphr.h"
 
+#include "esp_timer.h"
 #include "esp_log.h"
 
 #include "driver/ledc.h"
@@ -29,6 +30,8 @@
 static SemaphoreHandle_t counting_sem;
 hsv_t curr_color = {0};
 uint8_t curr_tint = 0;
+
+static bool initialized = false;
 
 static bool cb_ledc_fade_end_event(const ledc_cb_param_t *param,
                                    void *user_arg) {
@@ -170,7 +173,6 @@ void paint(hsv_t hsv, TickType_t ticks) {
     uint32_t w;
 #endif
 
-    static bool initialized = false;
     if (!initialized) {
         led_init();
         initialized = true;
@@ -229,4 +231,102 @@ void paint(hsv_t hsv, TickType_t ticks) {
              end, start, end - start, hsv.h, hsv.s, hsv.v, r, g, b, c);
 
     curr_color = hsv;
+}
+
+void draw(hsv_t hsv) {
+    uint32_t r, g, b, c;
+#ifdef USE_WARM_WHITE
+    uint32_t w;
+#endif
+
+    if (!initialized) {
+        led_init();
+        initialized = true;
+    }
+
+    if (hsv.h == curr_color.h && hsv.s == curr_color.s &&
+        hsv.v == curr_color.v) {
+        return;
+    }
+
+    hsv_t tint = hsv;
+    uint8_t unsat = 0xff - tint.s;
+    c = ((uint32_t)unsat) / 8;
+#ifdef USE_WARM_WHITE
+    w = ((uint32_t)unsat) / 8;
+#endif
+    tint.s = 0xff;
+
+    // if unsat = 0x00, then tint.v is unchanged
+    // if unsat = 0xff, then tint.v is 0 and all brightness comes from
+    // white led
+    tint.v -= (uint8_t)(((uint32_t)unsat * (uint32_t)tint.v) / (uint32_t)0xff);
+
+    rgb_t rgb = hsv2rgb_spectrum(tint);
+    r = (uint32_t)rgb.r * 3;
+    g = (uint32_t)rgb.g * 3;
+    b = (uint32_t)rgb.b / 2;
+
+    ledc_set_duty(LEDC_LOW_SPEED_MODE, LEDC_CHANNEL_0, r);
+    ledc_update_duty(LEDC_LOW_SPEED_MODE, LEDC_CHANNEL_0);
+    ledc_set_duty(LEDC_LOW_SPEED_MODE, LEDC_CHANNEL_1, g);
+    ledc_update_duty(LEDC_LOW_SPEED_MODE, LEDC_CHANNEL_1);
+    ledc_set_duty(LEDC_LOW_SPEED_MODE, LEDC_CHANNEL_2, b);
+    ledc_update_duty(LEDC_LOW_SPEED_MODE, LEDC_CHANNEL_2);
+#ifdef USE_WARM_WHITE
+    ledc_set_duty(LEDC_LOW_SPEED_MODE, LEDC_CHANNEL_3, w);
+    ledc_update_duty(LEDC_LOW_SPEED_MODE, LEDC_CHANNEL_3);
+#endif
+    ledc_set_duty(LEDC_LOW_SPEED_MODE, LEDC_CHANNEL_4, c);
+    ledc_update_duty(LEDC_LOW_SPEED_MODE, LEDC_CHANNEL_4);
+    curr_color = hsv;
+}
+
+void flash(int ms) {
+    if (ms > 10)
+        ms = 10;
+
+#ifdef USE_WARM_WHITE
+    uint32_t w = ledc_get_duty(LEDC_LOW_SPEED_MODE, LEDC_CHANNEL_3);
+    ledc_set_duty(LEDC_LOW_SPEED_MODE, LEDC_CHANNEL_3, MAX_DUTY);
+    ledc_update_duty(LEDC_LOW_SPEED_MODE, LEDC_CHANNEL_3);
+#endif
+    uint32_t c = ledc_get_duty(LEDC_LOW_SPEED_MODE, LEDC_CHANNEL_4);
+    ledc_set_duty(LEDC_LOW_SPEED_MODE, LEDC_CHANNEL_4, MAX_DUTY);
+    ledc_update_duty(LEDC_LOW_SPEED_MODE, LEDC_CHANNEL_4);
+
+    int64_t htime = esp_timer_get_time();
+    while (esp_timer_get_time() - htime < 1000 * ms) {
+    }
+
+#ifdef USE_WARM_WHITE
+    ledc_set_duty(LEDC_LOW_SPEED_MODE, LEDC_CHANNEL_3, w);
+    ledc_update_duty(LEDC_LOW_SPEED_MODE, LEDC_CHANNEL_3);
+#endif
+    ledc_set_duty(LEDC_LOW_SPEED_MODE, LEDC_CHANNEL_4, c);
+    ledc_update_duty(LEDC_LOW_SPEED_MODE, LEDC_CHANNEL_4);
+}
+
+void flash_max() {
+
+    ESP_LOGI(TAG, "flash_max");
+
+#ifdef USE_WARM_WHITE
+    ledc_set_duty(LEDC_LOW_SPEED_MODE, LEDC_CHANNEL_3, MAX_DUTY);
+    ledc_update_duty(LEDC_LOW_SPEED_MODE, LEDC_CHANNEL_3);
+#endif
+    ledc_set_duty(LEDC_LOW_SPEED_MODE, LEDC_CHANNEL_4, MAX_DUTY);
+    ledc_update_duty(LEDC_LOW_SPEED_MODE, LEDC_CHANNEL_4);
+}
+
+void flash_min() {
+
+    ESP_LOGI(TAG, "flash_max");
+
+#ifdef USE_WARM_WHITE
+    ledc_set_duty(LEDC_LOW_SPEED_MODE, LEDC_CHANNEL_3, 0);
+    ledc_update_duty(LEDC_LOW_SPEED_MODE, LEDC_CHANNEL_3);
+#endif
+    ledc_set_duty(LEDC_LOW_SPEED_MODE, LEDC_CHANNEL_4, 0);
+    ledc_update_duty(LEDC_LOW_SPEED_MODE, LEDC_CHANNEL_4);
 }
