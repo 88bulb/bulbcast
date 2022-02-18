@@ -4,6 +4,8 @@
 #include "freertos/FreeRTOS.h"
 #include "color.h"
 
+extern int hue_max_rgb[256];
+
 void led_init();
 void led_fade(uint32_t r, uint32_t g, uint32_t b, uint32_t c, uint32_t w,
               uint32_t duration);
