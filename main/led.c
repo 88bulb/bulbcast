@@ -456,6 +456,23 @@ void draw(hsv_t hsv) {
     curr_color = hsv;
 }
 
+void direct_draw(uint32_t r, uint32_t g, uint32_t b, uint32_t c, uint32_t w) {
+    ledc_set_duty(LEDC_LOW_SPEED_MODE, LEDC_CHANNEL_0, r);
+    ledc_update_duty(LEDC_LOW_SPEED_MODE, LEDC_CHANNEL_0);
+    ledc_set_duty(LEDC_LOW_SPEED_MODE, LEDC_CHANNEL_1, g);
+    ledc_update_duty(LEDC_LOW_SPEED_MODE, LEDC_CHANNEL_1);
+    ledc_set_duty(LEDC_LOW_SPEED_MODE, LEDC_CHANNEL_2, b);
+    ledc_update_duty(LEDC_LOW_SPEED_MODE, LEDC_CHANNEL_2);
+#ifdef USE_WARM_WHITE
+    ledc_set_duty(LEDC_LOW_SPEED_MODE, LEDC_CHANNEL_3, w);
+    ledc_update_duty(LEDC_LOW_SPEED_MODE, LEDC_CHANNEL_3);
+#endif
+    ledc_set_duty(LEDC_LOW_SPEED_MODE, LEDC_CHANNEL_4, c);
+    ledc_update_duty(LEDC_LOW_SPEED_MODE, LEDC_CHANNEL_4);
+
+    curr_color.v = 0;
+}
+
 void flash(int ms) {
     if (ms > 10)
         ms = 10;

@@ -69,6 +69,8 @@ typedef enum {
     PRIMARY_COLOR,
     HSV_TRANSITION,
     RANDOM_TRAPEZOID,
+    CYCLE_COLOR,
+    FAST_FLASH,
 } base_layer_type_t;
 
 typedef struct {
@@ -114,6 +116,21 @@ typedef struct {
 } random_trapezoid_t;
 
 typedef struct {
+    hsv_t color;
+    int cycle_us;
+} cycle_color_t;
+
+typedef struct {
+    int on_us;
+    int tt_us; // tt for total
+    int r;
+    int g;
+    int b;
+    int c;
+    int w;
+} fast_flash_t;
+
+typedef struct {
     base_layer_type_t type;
     int64_t start;
     int64_t end;
@@ -121,6 +138,8 @@ typedef struct {
     union {
         hsv_transition_t hsv_transition;
         random_trapezoid_t rand_trap;
+        cycle_color_t cycle_color;
+        fast_flash_t fast_flash;
     } data;
 } base_layer_t;
 
@@ -226,6 +245,8 @@ static void render() {
     }
 
     switch (curr_base.type) {
+    case PRIMARY_COLOR:
+        break;
     case HSV_TRANSITION: {
         curr_base.color = interp_color(curr_base.data.hsv_transition.from,
                                        curr_base.data.hsv_transition.to,
@@ -253,13 +274,35 @@ static void render() {
             curr_base.color = p->c0;
         }
     } break;
+
+    case CYCLE_COLOR: {
+        int64_t elapsed_time_us = now - curr_base.start;
+        int64_t cycle_us = curr_base.data.cycle_color.cycle_us;
+        int64_t modulo_us = elapsed_time_us % cycle_us;
+        uint8_t delta_hue = (uint8_t)(modulo_us * 256 / cycle_us);
+
+        curr_base.color = curr_base.data.cycle_color.color;
+        curr_base.color.hue += delta_hue;
+    } break;
+
+    case FAST_FLASH: {
+        fast_flash_t *p = &curr_base.data.fast_flash;
+        int64_t elapsed_time_us = now - curr_base.start;
+        int64_t modulo_us = elapsed_time_us % p->tt_us;
+        if (modulo_us <= p->on_us) {
+            direct_draw(p->r, p->g, p->b, p->c, p->w);
+        } else {
+            direct_draw(0, 0, 0, 0, 0);
+        }
+    } break;
+
     default:
         break;
     }
 
-    int64_t before_draw = esp_timer_get_time();
-    draw(curr_base.color);
-    int64_t after_draw = esp_timer_get_time();
+    if (curr_base.type != FAST_FLASH) {
+        draw(curr_base.color);
+    }
 }
 
 static void timer_callback(void *arg) {
@@ -388,17 +431,23 @@ void handle_bulbcode(uint16_t cmd, const uint8_t code[13]) {
     } break;
 
     /**
-     *  option      2 byte
-     *  delay       1 byte  delay is used for
-     *  cycle min   1 byte
-     *  bottom      1 byte
-     *  top         1 byte
-     *  up        1 byte
-     *  hue
+     *  option      3 byte
+     *  cycle       1 byte (sec)
+     *  bottom      1 byte (max/min)
+     *  top         1 byte (max/min)
+     *  up          1 byte (max/min)
+     *  hue         1 byte (max/min)
+     *  sat         1 byte (max/min)
+     *  value       1 byte (max/min)
+     *  hue         1 byte (max/min)
+     *  sat         1 byte (max/min)
+     *  value       1 byte (max/min)
+     *  ----------------------------
+     *  total      13 bytes
      */
     case 0x1003: {
 
-        ESP_LOGI(TAG, "0x1003 received");
+        ESP_LOGI(TAG, "0x1003 (random trapezoid) received");
 
         int64_t now = esp_timer_get_time();
         base_layer_t *p = &curr_base;
@@ -432,6 +481,101 @@ void handle_bulbcode(uint16_t cmd, const uint8_t code[13]) {
 
         shuffle_random_trapezoid(q, now);
     } break;
+
+    /**
+     * option       1 byte
+     * fade in dur  1 byte (max)
+     * fade in dur  1 byte (min)
+     * cycle        1 byte (max)
+     * cycle        1 byte (min)
+     * hue          1 byte
+     * sat          1 byte
+     * value        1 byte
+     * padding      5 bytes (0000000000)
+     * -------------------------
+     * total       13 bytes
+     *
+     * example: 5-second cycle, start from red, max sat and brightness
+     *
+     * b01bc0de00a5a5a5a5ffff1005000000000400ffff0000000000
+     */
+    case 0x1004: {
+
+        ESP_LOGI(TAG, "0x1004 received");
+
+        // uint8_t opt = code[0];
+        // uint8_t dur_max = code[1];
+        // uint8_t dur_min = code[2];
+        int64_t dur = 0;
+        // int cycle_max = code[3];
+        int cycle_min = code[4];
+        int cycle = cycle_min;
+
+        hsv_t hsv;
+        hsv.h = code[5];
+        hsv.s = code[6];
+        hsv.v = code[7];
+
+        if (dur == 0) {
+            int64_t now = esp_timer_get_time();
+
+            curr_base.type = CYCLE_COLOR;
+            curr_base.start = now;
+            curr_base.end = 0;
+
+            cycle_color_t *q = &curr_base.data.cycle_color;
+            q->color = hsv;
+            q->cycle_us = (int64_t)cycle * 1000000;
+        }
+    } break;
+
+    /**
+     * on           1 byte (on time in msec)
+     * off          2 bytes (off time in msec)
+     * red          2 bytes
+     * green        2 bytes
+     * blue         2 bytes
+     * cold white   2 bytes
+     * warm white   2 bytes
+     * -------------------------
+     * total       13 bytes
+     *
+     * example: 20ms on, 200ms cycle,
+     *
+     * b01bc0de00a5a5a5a500ff10051400c8000000000000ffffffff
+     */
+    case 0x1005: {
+
+        ESP_LOGI(TAG, "0x1005 receive");
+
+        int on = code[0];
+        int tt = code[1] * 256 + code[2];
+        if (tt < on * 2)
+            tt = on * 2;
+
+        int r = (code[3] * 256 + code[4]) >> 4;
+        int g = (code[5] * 256 + code[6]) >> 4;
+        int b = (code[7] * 256 + code[8]) >> 4;
+        int c = (code[9] * 256 + code[10]) >> 4;
+        int w = (code[11] * 256 + code[12]) >> 4;
+
+        int64_t now = esp_timer_get_time();
+
+        // don't touch curr_base.color here
+        curr_base.type = FAST_FLASH;
+        curr_base.start = now;
+        curr_base.end = 0;
+
+        fast_flash_t *q = &curr_base.data.fast_flash;
+        q->on_us = on * 1000;
+        q->tt_us = tt * 1000;
+        q->r = r;
+        q->g = g;
+        q->b = b;
+        q->c = c;
+        q->w = w;
+    } break;
+
     default:
         break;
     }
